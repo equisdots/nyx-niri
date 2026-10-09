@@ -18,8 +18,9 @@ readonly property string cursorProvider: String(Quickshell.env("NYX_CURSOR_PROVI
 ```
 
 `XDG_CURRENT_DESKTOP` contains `niri` under a niri session and `Hyprland`
-under Hyprland. These are declared on the per-screen `overlay` object so each
-surface selects its own processes.
+under Hyprland. Detection is session-wide, so these `readonly property`
+declarations live on the root `Variants` object; the `Process` objects that
+consume them are per screen, so each surface selects its own.
 
 | Touch point    | Hyprland                                   | niri                                          |
 | -------------- | ------------------------------------------ | --------------------------------------------- |
@@ -81,6 +82,27 @@ coordinates.
 
 The provider is polled only when `isNiri` is true and `NYX_CURSOR_PROVIDER` is
 non-empty, so Hyprland users and niri users without the hook pay no cost.
+
+## Application and rollback
+
+This repository is an overlay, not a shell: the niri meta merges it by
+copying every file under `overlay/ui/nyx/**` onto the same relative path under
+the shared shell tree.
+
+```
+overlay/ui/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/nyx/**
+```
+
+`MascotsOverlay.qml` replaces the deployed upstream file (faithful copy plus
+the patched regions above); `nyx-cursor-provider.sh` is added. Nothing else is
+touched: the mascots, `MascotDock`, `nyx.json` and the `ui/Mascots.qml` wrapper
+are shared inputs and must not be edited here.
+
+Rollback restores the pristine `MascotsOverlay.qml` (re-run the dots installer
+for the `nyx` module, or copy the file back from the shared repository), then
+optionally removes `nyx-cursor-provider.sh` and unsets `NYX_CURSOR_PROVIDER`.
+The exact commands and the backup step are in
+[docs/overlay.md](docs/overlay.md).
 
 ## Hard UI rule
 

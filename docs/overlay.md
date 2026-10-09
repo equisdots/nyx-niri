@@ -7,7 +7,11 @@ TARGET_ROOT=~/.config/hypr/scripts/quickshell/
 ```
 
 The overlay mirrors that layout, so every file under `overlay/` maps onto the
-same relative path under `TARGET_ROOT`.
+same relative path under `TARGET_ROOT`:
+
+```
+overlay/ui/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/nyx/**
+```
 
 ## File-by-file merge map
 
