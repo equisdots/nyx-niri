@@ -1,0 +1,15 @@
+# Editor and OS cruft
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Merge backups created while applying the overlay
+*.bak
+*.orig
+*.rej
+
+# Logs
+*.log
