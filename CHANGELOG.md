@@ -6,6 +6,15 @@ All notable changes to `nyx-niri` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `overlay/ui/nyx/front/MascotsOverlay.qml`: re-synced with the upstream `nyx`
+  base — catalog-driven lineup (`mascotCatalog` / `speciesLineup`), per-species
+  `options`, per-mascot popovers, and the declarative contract binding (fixes
+  the `Item.palette` clash on Qt 6.6+). The niri split is unchanged: cursor via
+  an optional `NYX_CURSOR_PROVIDER` loop and window events from
+  `niri msg --json event-stream`.
+
 ## [0.1.0] - 2026-10-09
 
 First release: compositor-neutral overlay for the shared `nyx` mascot island,
