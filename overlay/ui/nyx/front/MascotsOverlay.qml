@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
+import QtQml
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -7,21 +8,11 @@ import "../mascots"
 import "../mascots/MascotMetrics.js" as Metrics
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MascotsOverlay — standalone mascot island for Quickshell (Hyprland + niri).
+// MascotsOverlay — standalone mascot island for Quickshell (Hyprland).
 //
 // This file and its siblings (Mascot.qml, <Species>Mascot.qml, MascotFaceEyes,
 // MascotDock) form a self-contained module that never imports the shell: the
 // palette, the settings path and the widget hooks are injected.
-//
-// Compositor neutrality: the only two compositor touch points are cursor
-// tracking and window events, selected at runtime from XDG_CURRENT_DESKTOP.
-// Hyprland keeps its original hyprctl cursorpos loop and socket2 event stream.
-// niri gets window events from `niri msg --json event-stream`, but niri has no
-// IPC for the global pointer position: without an external provider the cursor
-// is treated as absent and the mascots idle (cursorHere stays false). An
-// optional, experimental provider command can be supplied through the
-// NYX_CURSOR_PROVIDER environment variable (needs raw input access). Every
-// other feature is identical on both compositors.
 //
 // Public API (per screen):
 //   enabled            master switch (also read from the settings file)
@@ -56,16 +47,14 @@ import "../mascots/MascotMetrics.js" as Metrics
 //   widgetLauncher     function(id) called when a dock card is clicked
 //
 // Behaviour:
-//   - Pupils track the cursor on Hyprland (hyprctl cursorpos) and, on niri,
-//     through an optional NYX_CURSOR_PROVIDER loop; the offset is proportional
-//     to the eye size, so tracking reads at any scale. With no provider under
-//     niri the cursor counts as absent and the mascots idle.
+//   - Pupils track the cursor (hyprctl cursorpos; offset proportional to the
+//     eye size, so tracking reads at any scale).
 //   - Hovering the island surprises the mascots; they calm down on leave.
 //   - Clicking the island unfolds a dock with widget miniatures (3 per page);
 //     picking one launches it through `widgetLauncher` and the mascots cheer.
 //   - Random moods (angry / surprised / happy / sleepy, staggered per mascot)
-//     on window open/close (Hyprland socket2, or niri WindowOpenedOrChanged /
-//     WindowClosed events) and widget open/close; asleep after 30 s idle.
+//     on window open/close (Hyprland socket2) and widget open/close; asleep
+//     after 30 s idle.
 //   - The island fades away while the dock widget is open or any occluder
 //     overlaps it, and fades back in afterwards.
 //   - Only the island and the open dock capture input; the rest of the
@@ -76,18 +65,9 @@ Variants {
     id: root
     model: Quickshell.screens
 
-    // ── compositor awareness ───────────────────────────────────────────────
-    // niri has no IPC for the global pointer position, so cursor tracking
-    // needs an optional external provider there; niri window events arrive on
-    // `niri msg --json event-stream`. Detection is session-wide, not
-    // per-screen, so it lives on the root object.
-    readonly property string compositor: String(Quickshell.env("XDG_CURRENT_DESKTOP") || "").toLowerCase()
-    readonly property bool isNiri: compositor.indexOf("niri") !== -1
-    readonly property string cursorProvider: String(Quickshell.env("NYX_CURSOR_PROVIDER") || "")
-
     // ── public API ─────────────────────────────────────────────────────────
     property bool enabled: false
-    property string species: "flame"
+    property var species: "flame"
     property int count: 3
     property real size: 1.0
     property real uiScale: 1.0
@@ -136,6 +116,22 @@ Variants {
     property var widgetRectProvider: null
     property var widgetList: []
     property var widgetLauncher: null
+    // Discovered mascot species (injected by the host). Each item is
+    // { id, label, icon, entry?, builtin?, _base }. The lineup resolves ids
+    // from this catalog; a custom id carries an "entry" QML file to load.
+    property var mascotCatalog: []
+    // Per-species options from settings → mascots.options.<id>, injected per
+    // mascot through the `options` contract (color, size, …).
+    property var speciesOptions: ({})
+
+    // ── compositor awareness ───────────────────────────────────────────────
+    // niri has no IPC for the global pointer position, so cursor tracking
+    // needs an optional external provider there; niri window events arrive on
+    // `niri msg --json event-stream`. Detection is session-wide, not
+    // per-screen, so it lives on the root object.
+    readonly property string compositor: String(Quickshell.env("XDG_CURRENT_DESKTOP") || "").toLowerCase()
+    readonly property bool isNiri: compositor.indexOf("niri") !== -1
+    readonly property string cursorProvider: String(Quickshell.env("NYX_CURSOR_PROVIDER") || "")
 
     delegate: Component {
         PanelWindow {
@@ -145,13 +141,59 @@ Variants {
             screen: modelData
 
             // ── derived config ─────────────────────────────────────────────
-            readonly property string speciesKind: {
-                let v = String(root.species || "flame").toLowerCase();
-                if (v === "classic") v = "flame";
-                return ["flame", "cat", "dog", "eyes", "dots", "watcher", "mixed"].indexOf(v) !== -1
-                    ? v : "flame";
+            // Mascots: a catalog-driven lineup. `species` is a string (all
+            // mascots that kind, or "mixed") or an array of ids (one mascot
+            // each, in order). The host injects `mascotCatalog`; a custom id
+            // resolves to its QML `entry` (loaded by Mascot.qml).
+            readonly property var mascotCatalogList: (root.mascotCatalog
+                && root.mascotCatalog.length !== undefined) ? root.mascotCatalog : []
+
+            function catalogFor(id) {
+                for (let i = 0; i < overlay.mascotCatalogList.length; i++)
+                    if (overlay.mascotCatalogList[i].id === id) return overlay.mascotCatalogList[i];
+                return null;
             }
-            readonly property int mascotCount: Math.max(1, Math.min(3, Math.round(root.count)))
+            function resolveFile(d, rel) {
+                if (!rel) return "";
+                let e = String(rel);
+                if (e.indexOf("://") !== -1) return e;
+                if (e.charAt(0) === "/") return "file://" + e;
+                let base = (d && d._base) ? String(d._base) : "";
+                return base !== "" ? "file://" + base + "/" + e : e;
+            }
+            function entryUrl(d) { return resolveFile(d, d ? d.entry : ""); }
+            function mascotOptions(id) {
+                let o = (root.speciesOptions && root.speciesOptions[id]) ? root.speciesOptions[id] : {};
+                if (id === "watcher") o = Object.assign({}, root.watcherOptions, o);
+                return o;
+            }
+            readonly property var speciesLineup: {
+                let s = root.species;
+                let ids;
+                if (Array.isArray(s)) {
+                    ids = s.filter(function (x) {
+                        return x !== undefined && x !== null && String(x) !== "";
+                    });
+                } else {
+                    let v = String(s === undefined || s === null ? "flame" : s).toLowerCase();
+                    if (v === "mixed") ids = ["cat", "dog", "eyes"];
+                    else {
+                        let n = Math.max(1, Math.min(8, Math.round(root.count)));
+                        ids = [];
+                        for (let i = 0; i < n; i++) ids.push(v);
+                    }
+                }
+                let out = [];
+                for (let i = 0; i < ids.length && i < 8; i++) {
+                    let id = String(ids[i]).toLowerCase();
+                    if (id === "classic") id = "flame";
+                    let d = overlay.catalogFor(id);
+                    out.push({ id: id, kind: id, entry: d ? overlay.entryUrl(d) : "" });
+                }
+                if (out.length === 0) out.push({ id: "flame", kind: "flame", entry: "" });
+                return out;
+            }
+            readonly property int mascotCount: overlay.speciesLineup.length
             readonly property real mascotScale: Math.max(0.6, Math.min(1.6, root.size))
 
             // Position model (same ids as the editor's position pad). Notch
@@ -174,49 +216,59 @@ Variants {
             readonly property real pillW: (overlay.s(48) * overlay.mascotCount + overlay.s(32))
                 * overlay.mascotScale
             readonly property real pillH: overlay.s(46) * overlay.mascotScale
-            readonly property real panelW: dockPanel.panelWidth
-            readonly property real panelH: dockPanel.panelHeight
-            readonly property real panelShown: Math.max(0, dockPanel.reveal)
+            readonly property real panelW: overlay.popoverId !== ""
+                ? overlay.popoverContentW : dockPanel.panelWidth
+            readonly property real panelH: overlay.popoverId !== ""
+                ? overlay.popoverContentH : dockPanel.panelHeight
+            readonly property real popoverContentW: (popoverLoader.item && popoverLoader.item.implicitWidth > 0)
+                ? popoverLoader.item.implicitWidth : overlay.s(320)
+            readonly property real popoverContentH: (popoverLoader.item && popoverLoader.item.implicitHeight > 0)
+                ? popoverLoader.item.implicitHeight : overlay.s(180)
+            readonly property real panelShown: Math.max(0, dockPanel.reveal, overlay.popoverReveal)
             readonly property real panelSpan: overlay.panelShown * (overlay.panelGap + overlay.panelH)
             readonly property real slotW: Math.max(overlay.notch ? overlay.notchW : overlay.pillW,
                 overlay.panelW)
 
             // ── notch geometry ─────────────────────────────────────────────
             readonly property real surfaceW: overlay.screen ? overlay.screen.width : 1920
+            // Actual surface width. When the shell frame reserves left/right,
+            // the compositor shrinks this full-width (reserveSpace) surface, so
+            // screen.width is wrong for layout; overlay.width is the real size.
+            readonly property real contentW: overlay.width > 1 ? overlay.width : overlay.surfaceW
             readonly property real notchH: root.notchHeight > 0
                 ? Math.max(overlay.pillH + overlay.s(6), overlay.s(root.notchHeight))
                 : Math.max(overlay.pillH + overlay.s(10), overlay.s(38))
             readonly property real notchMinW: overlay.pillW + overlay.s(20)
             readonly property real dockPanelW: {
                 if (root.dockWidth > 0)
-                    return Math.min(overlay.s(root.dockWidth), overlay.surfaceW * 0.72);
+                    return Math.min(overlay.s(root.dockWidth), overlay.contentW * 0.72);
                 let preset = String(root.dockSize || "large").toLowerCase();
                 let base = preset === "compact" ? 560 : preset === "medium" ? 720
                     : preset === "wide" ? 1200 : 900;
-                return Math.min(overlay.s(base), overlay.surfaceW * 0.72);
+                return Math.min(overlay.s(base), overlay.contentW * 0.72);
             }
             readonly property bool dockJoined: String(root.dockStyle || "floating").toLowerCase() === "joined"
             // While a joined dock is open the notch widens to match it and the
             // bottom corners square off, so the two read as one surface.
             readonly property bool joinedOpen: overlay.dockJoined && overlay.panelOpen
             readonly property real baseNotchW: {
-                let maxW = overlay.surfaceW * 0.5;
+                let maxW = overlay.contentW * 0.5;
                 let want = overlay.s(Math.max(80, root.notchWidth));
                 return Math.max(overlay.notchMinW, Math.min(maxW, want));
             }
             readonly property real notchW: overlay.joinedOpen
-                ? Math.min(overlay.surfaceW * 0.9, Math.max(overlay.baseNotchW, overlay.dockPanelW))
+                ? Math.min(overlay.contentW * 0.9, Math.max(overlay.baseNotchW, overlay.dockPanelW))
                 : overlay.baseNotchW
             readonly property real notchRadius: overlay.joinedOpen ? 0 : overlay.s(13)
             readonly property real notchY: overlay.s(root.notchOffset)
             readonly property real chromeW: overlay.notch ? overlay.notchW : overlay.pillW
             readonly property real chromeH: overlay.notch ? overlay.notchH : overlay.pillH
             // A notch can reserve the top strip; that needs a full-width surface
-            // (three anchors), so the content is laid out against the screen
-            // width instead of the window's implicit width.
+            // (three anchors), so the content is laid out against the surface's
+            // real width (which the compositor may shrink by other struts).
             readonly property bool reserveSpace: overlay.notch && root.notchReserve
                 && root.enabled
-            readonly property real layoutW: overlay.reserveSpace ? overlay.surfaceW : overlay.implicitWidth
+            readonly property real layoutW: overlay.reserveSpace ? overlay.contentW : overlay.implicitWidth
             readonly property real notchX: overlay.posLeft ? overlay.boxMargin
                 : overlay.posRight ? (overlay.layoutW - overlay.notchW - overlay.boxMargin)
                 : Math.round((overlay.layoutW - overlay.notchW) / 2)
@@ -237,7 +289,10 @@ Variants {
                 : overlay.boxMargin
             // Screen-space origin of this surface (anchored edges have no
             // left/top margin, so the window top-left is computed instead).
-            readonly property real originX: overlay.reserveSpace ? 0
+            // When reserveSpace, the compositor centres the shrunk surface, so
+            // the origin is half the horizontal loss.
+            readonly property real originX: overlay.reserveSpace
+                ? Math.max(0, Math.round((overlay.surfaceW - overlay.contentW) / 2))
                 : (overlay.posRight
                     ? (overlay.screen ? overlay.screen.width - overlay.implicitWidth
                         - overlay.margins.right : 0)
@@ -319,6 +374,7 @@ Variants {
                     if (m.size !== undefined) root.size = m.size;
                     if (m.species !== undefined) root.species = m.species;
                     if (m.count !== undefined) root.count = m.count;
+                    root.speciesOptions = (m.options && typeof m.options === "object") ? m.options : {};
                     if (m.position !== undefined) root.position = m.position;
                     if (m.appearance !== undefined) root.appearance = String(m.appearance);
                     if (m.notchWidth !== undefined) root.notchWidth = m.notchWidth;
@@ -443,11 +499,42 @@ Variants {
 
             // ── dock panel ─────────────────────────────────────────────────
             property bool panelOpen: false
-            function togglePanel() { overlay.panelOpen = !overlay.panelOpen; }
+            function togglePanel() { overlay.closePopover(); overlay.panelOpen = !overlay.panelOpen; }
             function launchWidget(id) {
                 overlay.panelOpen = false;
                 overlay.setAllMoods("happy");
                 if (root.widgetLauncher) root.widgetLauncher(id);
+            }
+
+            // ── per-mascot popover (shares the dock's panel slot/mask) ─────
+            // popoverId stays set through the close animation so the panel
+            // geometry couples to the real size while it shrinks.
+            property bool popoverOpen: false
+            property string popoverId: ""
+            property real popoverReveal: overlay.popoverOpen ? 1 : 0
+            Behavior on popoverReveal { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+            onPopoverRevealChanged: {
+                if (!overlay.popoverOpen && overlay.popoverReveal < 0.01) overlay.popoverId = "";
+            }
+            function openPopover(id) { overlay.panelOpen = false; overlay.popoverId = String(id); overlay.popoverOpen = true; }
+            function closePopover() { overlay.popoverOpen = false; }
+            function togglePopover(id) {
+                if (overlay.popoverOpen && overlay.popoverId === String(id)) overlay.closePopover();
+                else overlay.openPopover(id);
+            }
+            function selectedOptions() { return overlay.mascotOptions(overlay.popoverId); }
+            // Click on the island: the mascot under the pointer opens its
+            // popover if its manifest declares one; otherwise the dock. While a
+            // popover is open, any island click collapses it.
+            function islandClicked(localX) {
+                if (overlay.popoverOpen) { overlay.closePopover(); return; }
+                let n = overlay.mascotCount;
+                if (n < 1) { overlay.togglePanel(); return; }
+                let i = Math.max(0, Math.min(n - 1, Math.floor(localX / (overlay.chromeW / n))));
+                let item = overlay.speciesLineup[i];
+                let d = item ? overlay.catalogFor(item.id) : null;
+                if (d && d.popover) overlay.togglePopover(item.id);
+                else overlay.togglePanel();
             }
 
             // ── cursor ─────────────────────────────────────────────────────
@@ -712,7 +799,7 @@ Variants {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: overlay.togglePanel()
+                    onClicked: overlay.islandClicked(mouse.x)
                     onEntered: overlay.hoverReaction(true)
                     onExited: overlay.hoverReaction(false)
                 }
@@ -749,32 +836,91 @@ Variants {
                 onCloseRequested: overlay.panelOpen = false
             }
 
+            // ── per-mascot popover (shares the dock's panel slot) ──────────
+            // The visible size grows/shrinks with the reveal (like the dock):
+            // the background scales its height and the content a vertical Scale,
+            // both anchored to the island-facing edge.
+            Item {
+                id: popoverHost
+                x: overlay.panelX
+                y: overlay.panelY
+                width: overlay.panelW
+                height: overlay.panelH
+                clip: true
+                visible: overlay.popoverReveal > 0.01
+
+                Rectangle {
+                    id: popoverBg
+                    width: parent.width
+                    height: Math.max(0, overlay.panelH * overlay.popoverReveal)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: overlay.panelBelow ? parent.top : undefined
+                    anchors.bottom: overlay.panelBelow ? undefined : parent.bottom
+                    radius: overlay.s(14)
+                    color: Qt.rgba(root.palette.base.r, root.palette.base.g, root.palette.base.b,
+                        root.palette.glassOn === true ? 0.9 : 1.0)
+                    border.width: 1
+                    border.color: Qt.alpha(root.palette.surface1, 0.9)
+                }
+
+                Loader {
+                    id: popoverLoader
+                    width: parent.width
+                    height: overlay.panelH
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: overlay.panelBelow ? parent.top : undefined
+                    anchors.bottom: overlay.panelBelow ? undefined : parent.bottom
+                    opacity: overlay.popoverReveal
+                    transform: Scale {
+                        origin.x: 0
+                        origin.y: overlay.panelBelow ? 0 : popoverLoader.height
+                        yScale: Math.max(0.001, overlay.popoverReveal)
+                    }
+                    source: {
+                        if (overlay.popoverId === "") return "";
+                        let d = overlay.catalogFor(overlay.popoverId);
+                        return d && d.popover ? overlay.resolveFile(d, d.popover) : "";
+                    }
+                    onLoaded: {
+                        if (!item) return;
+                        try { item.closeRequested.connect(() => overlay.closePopover()); } catch (e) {}
+                    }
+                }
+                Binding { target: popoverLoader.item; property: "options";   value: overlay.selectedOptions() }
+                Binding { target: popoverLoader.item; property: "palette";   value: root.palette }
+                Binding { target: popoverLoader.item; property: "scaleUnit"; value: overlay.baseScale }
+                Binding { target: popoverLoader.item; property: "accent";    value: overlay.accentColor }
+            }
+
             // ── mascots ────────────────────────────────────────────────────
             Repeater {
-                model: overlay.mascotCount
+                model: overlay.speciesLineup
                 delegate: Mascot {
+                    required property var modelData
+                    required property int index
                     width: overlay.mascotSize
                     height: overlay.mascotSize * 1.18
                     opacity: overlay.mascotsShown ? 1.0 : 0.0
                     visible: opacity > 0.01
                     Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
-                    index: modelData
-                    species: overlay.speciesKind
-                    mood: overlay.moods[modelData] || "idle"
-                    lookX: (overlay.mpos[modelData] || {}).px || 0
-                    lookY: (overlay.mpos[modelData] || {}).py || 0
+                    slot: index
+                    species: modelData.kind
+                    entry: modelData.entry
+                    mood: overlay.moods[index] || "idle"
+                    lookX: (overlay.mpos[index] || {}).px || 0
+                    lookY: (overlay.mpos[index] || {}).py || 0
                     tint: [root.palette.mauve, root.palette.blue,
-                           root.palette.green][modelData % 3]
+                           root.palette.green][index % 3]
                     crust: root.palette.crust
                     text: root.palette.text
                     red: root.palette.red
                     palette: root.palette
                     clock: overlay.clock
-                    xPos: (overlay.mpos[modelData] || {}).x || 0
-                    yPos: (overlay.mpos[modelData] || {}).y || 0
+                    xPos: (overlay.mpos[index] || {}).x || 0
+                    yPos: (overlay.mpos[index] || {}).y || 0
                     zSize: overlay.zSize
-                    options: root.watcherOptions
+                    options: overlay.mascotOptions(modelData.id)
                 }
             }
         }
