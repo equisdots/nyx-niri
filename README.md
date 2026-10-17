@@ -8,15 +8,15 @@ package, which merges `overlay/` into the shared shell tree.
 ## Overlay model
 
 The shared `nyx` module lives in its own repository and is deployed by the
-dots installer under `~/.config/hypr/scripts/quickshell/ui/nyx/`. This
+dots installer under `~/.config/hypr/scripts/quickshell/ui/plugins/nyx/`. This
 repository is an **overlay**: it contains only the files that differ from that
 shared tree, mirroring the deployed layout under `overlay/`. The niri meta
 copies `overlay/` over the shared tree, replacing the patched files and adding
 the new ones. Nothing else in the shared shell is touched.
 
 ```
-overlay/ui/nyx/front/MascotsOverlay.qml              -> quickshell/ui/nyx/front/MascotsOverlay.qml
-overlay/ui/nyx/scripts/nyx-cursor-provider.sh        -> quickshell/ui/nyx/scripts/nyx-cursor-provider.sh
+overlay/ui/plugins/nyx/front/MascotsOverlay.qml              -> quickshell/ui/plugins/nyx/front/MascotsOverlay.qml
+overlay/ui/plugins/nyx/scripts/nyx-cursor-provider.sh        -> quickshell/ui/plugins/nyx/scripts/nyx-cursor-provider.sh
 ```
 
 `MascotsOverlay.qml` is a faithful copy of the upstream file except for the
@@ -40,7 +40,7 @@ opt-in and experimental. Set `NYX_CURSOR_PROVIDER` to a command whose stdout is
 a stream of `x,y` lines; the overlay polls it only on niri:
 
 ```sh
-export NYX_CURSOR_PROVIDER="$HOME/.config/hypr/scripts/quickshell/ui/nyx/scripts/nyx-cursor-provider.sh"
+export NYX_CURSOR_PROVIDER="$HOME/.config/hypr/scripts/quickshell/ui/plugins/nyx/scripts/nyx-cursor-provider.sh"
 ```
 
 The bundled `nyx-cursor-provider.sh` is a best-effort example built on

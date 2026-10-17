@@ -10,15 +10,15 @@ The overlay mirrors that layout, so every file under `overlay/` maps onto the
 same relative path under `TARGET_ROOT`:
 
 ```
-overlay/ui/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/nyx/**
+overlay/ui/plugins/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/plugins/nyx/**
 ```
 
 ## File-by-file merge map
 
 | Source (this repo)                                        | Target                                              | Action   |
 | --------------------------------------------------------- | --------------------------------------------------- | -------- |
-| `overlay/ui/nyx/front/MascotsOverlay.qml`                 | `$TARGET_ROOT/ui/nyx/front/MascotsOverlay.qml`      | replace  |
-| `overlay/ui/nyx/scripts/nyx-cursor-provider.sh`           | `$TARGET_ROOT/ui/nyx/scripts/nyx-cursor-provider.sh`| add      |
+| `overlay/ui/plugins/nyx/front/MascotsOverlay.qml`                 | `$TARGET_ROOT/ui/plugins/nyx/front/MascotsOverlay.qml`      | replace  |
+| `overlay/ui/plugins/nyx/scripts/nyx-cursor-provider.sh`           | `$TARGET_ROOT/ui/plugins/nyx/scripts/nyx-cursor-provider.sh`| add      |
 
 - **replace** — the target already exists (deployed from the shared `nyx`
   repository). The overlay version is a faithful copy with only the compositor
@@ -29,18 +29,18 @@ overlay/ui/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/nyx/**
 Create the scripts directory if the deploy step does not already:
 
 ```sh
-mkdir -p "$TARGET_ROOT/ui/nyx/scripts"
+mkdir -p "$TARGET_ROOT/ui/plugins/nyx/scripts"
 ```
 
 ## What is unchanged
 
 These shared files are **not** in the overlay and must never be edited here:
 
-- `ui/nyx/front/MascotDock.qml`
-- `ui/nyx/mascots/` (all species, `Mascot.qml`, `MascotFaceEyes.qml`,
+- `ui/plugins/nyx/front/MascotDock.qml`
+- `ui/plugins/nyx/mascots/` (all species, `Mascot.qml`, `MascotFaceEyes.qml`,
   `MascotMetrics.js`)
-- `ui/nyx/nyx.json`
-- `ui/Mascots.qml` (the shell wrapper that instantiates `MascotsOverlay`)
+- `ui/plugins/nyx/nyx.json`
+- `ui/PluginHosts.qml` (the generic mount for the plugin `host` adapter)
 
 The public API of `MascotsOverlay` (`enabled`, `species`, `count`, `size`,
 `uiScale`, `position`, `appearance`, `dock*`, `palette`, `cursorX/cursorY/
@@ -58,13 +58,13 @@ adds a new one:
 
    ```sh
    cp /path/to/equisdots/nyx/front/MascotsOverlay.qml \
-      "$TARGET_ROOT/ui/nyx/front/MascotsOverlay.qml"
+      "$TARGET_ROOT/ui/plugins/nyx/front/MascotsOverlay.qml"
    ```
 
 2. **Remove the added provider script** (optional, harmless if left):
 
    ```sh
-   rm -f "$TARGET_ROOT/ui/nyx/scripts/nyx-cursor-provider.sh"
+   rm -f "$TARGET_ROOT/ui/plugins/nyx/scripts/nyx-cursor-provider.sh"
    ```
 
 Then unset `NYX_CURSOR_PROVIDER` from the niri session environment and restart
@@ -73,6 +73,6 @@ Quickshell (`qs`). The overlay leaves no other state behind.
 To keep a safety copy during a merge, back the target up first:
 
 ```sh
-cp "$TARGET_ROOT/ui/nyx/front/MascotsOverlay.qml" \
-   "$TARGET_ROOT/ui/nyx/front/MascotsOverlay.qml.bak"
+cp "$TARGET_ROOT/ui/plugins/nyx/front/MascotsOverlay.qml" \
+   "$TARGET_ROOT/ui/plugins/nyx/front/MascotsOverlay.qml.bak"
 ```
