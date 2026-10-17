@@ -86,11 +86,11 @@ non-empty, so Hyprland users and niri users without the hook pay no cost.
 ## Application and rollback
 
 This repository is an overlay, not a shell: the niri meta merges it by
-copying every file under `overlay/ui/nyx/**` onto the same relative path under
+copying every file under `overlay/ui/plugins/nyx/**` onto the same relative path under
 the shared shell tree.
 
 ```
-overlay/ui/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/nyx/**
+overlay/ui/plugins/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/plugins/nyx/**
 ```
 
 `MascotsOverlay.qml` replaces the deployed upstream file (faithful copy plus

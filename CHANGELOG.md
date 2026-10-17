@@ -8,7 +8,11 @@ All notable changes to `nyx-niri` are documented here. The format follows
 
 ### Changed
 
-- `overlay/ui/nyx/front/MascotsOverlay.qml`: re-synced with the upstream `nyx`
+- Overlay target moved from `ui/nyx/` to `ui/plugins/nyx/`: Nyx is now a plugin
+  (the shell mounts it through `ui/PluginHosts.qml` and the `host` adapter), so
+  the niri overlay patches the plugin UI tree and is applied after the generic
+  plugin deploy.
+- `overlay/ui/plugins/nyx/front/MascotsOverlay.qml`: re-synced with the upstream `nyx`
   base — catalog-driven lineup (`mascotCatalog` / `speciesLineup`), per-species
   `options`, per-mascot popovers, and the declarative contract binding (fixes
   the `Item.palette` clash on Qt 6.6+). The niri split is unchanged: cursor via
@@ -22,9 +26,9 @@ running on Hyprland and on niri 26.04 without changing the rest of the shell.
 
 ### Added
 
-- `overlay/ui/nyx/front/MascotsOverlay.qml`: a faithful copy of the upstream
+- `overlay/ui/plugins/nyx/front/MascotsOverlay.qml`: a faithful copy of the upstream
   island with a runtime compositor split selected from `XDG_CURRENT_DESKTOP`.
-- `overlay/ui/nyx/scripts/nyx-cursor-provider.sh`: an optional, experimental
+- `overlay/ui/plugins/nyx/scripts/nyx-cursor-provider.sh`: an optional, experimental
   absolute-pointer provider for niri, enabled with `NYX_CURSOR_PROVIDER`.
 - niri window events via `niri msg --json event-stream`
   (`WindowOpenedOrChanged` / `WindowClosed` -> react, `WindowFocusChanged` ->

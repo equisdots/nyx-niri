@@ -24,7 +24,7 @@
 #     absent and the mascots simply stay idle. That is the expected fallback.
 #
 # Usage (opt-in, per session):
-#   export NYX_CURSOR_PROVIDER="$HOME/.config/hypr/scripts/quickshell/ui/nyx/scripts/nyx-cursor-provider.sh"
+#   export NYX_CURSOR_PROVIDER="$HOME/.config/hypr/scripts/quickshell/ui/plugins/nyx/scripts/nyx-cursor-provider.sh"
 #
 # This script ships DISABLED by default: the overlay only starts it when
 # NYX_CURSOR_PROVIDER is set to a non-empty command.
