@@ -8,11 +8,15 @@ import "../mascots"
 import "../mascots/MascotMetrics.js" as Metrics
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MascotsOverlay — standalone mascot island for Quickshell (Hyprland).
+// MascotsOverlay — standalone mascot island for Quickshell (Hyprland / niri).
 //
 // This file and its siblings (Mascot.qml, <Species>Mascot.qml, MascotFaceEyes,
 // MascotDock) form a self-contained module that never imports the shell: the
 // palette, the settings path and the widget hooks are injected.
+//
+// Compositor neutrality: the island runs on Hyprland and niri. Detection is
+// runtime (XDG_CURRENT_DESKTOP or NIRI_SOCKET) and selects the cursor and
+// window-event sources; see the compositor-awareness section below.
 //
 // Public API (per screen):
 //   enabled            master switch (also read from the settings file)
@@ -47,14 +51,16 @@ import "../mascots/MascotMetrics.js" as Metrics
 //   widgetLauncher     function(id) called when a dock card is clicked
 //
 // Behaviour:
-//   - Pupils track the cursor (hyprctl cursorpos; offset proportional to the
-//     eye size, so tracking reads at any scale).
+//   - Pupils track the cursor on Hyprland (hyprctl cursorpos) or through the
+//     optional NYX_CURSOR_PROVIDER hook on niri; without a provider they idle
+//     with centred pupils. The offset is proportional to the eye size, so
+//     tracking reads at any scale.
 //   - Hovering the island surprises the mascots; they calm down on leave.
 //   - Clicking the island unfolds a dock with widget miniatures (3 per page);
 //     picking one launches it through `widgetLauncher` and the mascots cheer.
 //   - Random moods (angry / surprised / happy / sleepy, staggered per mascot)
-//     on window open/close (Hyprland socket2) and widget open/close; asleep
-//     after 30 s idle.
+//     on window open/close (Hyprland socket2 / niri event-stream) and widget
+//     open/close; asleep after 30 s idle.
 //   - The island fades away while the dock widget is open or any occluder
 //     overlaps it, and fades back in afterwards.
 //   - Only the island and the open dock capture input; the rest of the
@@ -128,9 +134,11 @@ Variants {
     // niri has no IPC for the global pointer position, so cursor tracking
     // needs an optional external provider there; niri window events arrive on
     // `niri msg --json event-stream`. Detection is session-wide, not
-    // per-screen, so it lives on the root object.
+    // per-screen, so it lives on the root object. NIRI_SOCKET is checked too:
+    // some niri sessions do not export "niri" in XDG_CURRENT_DESKTOP.
     readonly property string compositor: String(Quickshell.env("XDG_CURRENT_DESKTOP") || "").toLowerCase()
-    readonly property bool isNiri: compositor.indexOf("niri") !== -1
+    readonly property string niriSocket: String(Quickshell.env("NIRI_SOCKET") || "")
+    readonly property bool isNiri: compositor.indexOf("niri") !== -1 || niriSocket !== ""
     readonly property string cursorProvider: String(Quickshell.env("NYX_CURSOR_PROVIDER") || "")
 
     delegate: Component {
@@ -226,6 +234,18 @@ Variants {
                 ? popoverLoader.item.implicitHeight : overlay.s(180)
             readonly property real panelShown: Math.max(0, dockPanel.reveal, overlay.popoverReveal)
             readonly property real panelSpan: overlay.panelShown * (overlay.panelGap + overlay.panelH)
+            // The layer surface must never be resized by the reveal: even a
+            // single resize at the end of a close makes the compositor stretch
+            // the previous buffer (the notch appears to stretch after the
+            // panel is already gone). Keep edge-anchored overlays at a fixed
+            // panel height and clip the content inside; the mask keeps the
+            // empty area click-through. Centred positions keep the coupled
+            // layout.
+            readonly property bool dockHeld: overlay.panelOpen || dockPanel.reveal > 0.001
+            readonly property real panelLayoutSpan: {
+                if (!(overlay.posTop || overlay.posBottom)) return overlay.panelSpan;
+                return overlay.panelGap + dockPanel.panelHeight;
+            }
             readonly property real slotW: Math.max(overlay.notch ? overlay.notchW : overlay.pillW,
                 overlay.panelW)
 
@@ -250,16 +270,26 @@ Variants {
             readonly property bool dockJoined: String(root.dockStyle || "floating").toLowerCase() === "joined"
             // While a joined dock is open the notch widens to match it and the
             // bottom corners square off, so the two read as one surface.
-            readonly property bool joinedOpen: overlay.dockJoined && overlay.panelOpen
+            readonly property bool joinedOpen: overlay.dockJoined && overlay.dockHeld
             readonly property real baseNotchW: {
                 let maxW = overlay.contentW * 0.5;
                 let want = overlay.s(Math.max(80, root.notchWidth));
                 return Math.max(overlay.notchMinW, Math.min(maxW, want));
             }
-            readonly property real notchW: overlay.joinedOpen
-                ? Math.min(overlay.contentW * 0.9, Math.max(overlay.baseNotchW, overlay.dockPanelW))
-                : overlay.baseNotchW
-            readonly property real notchRadius: overlay.joinedOpen ? 0 : overlay.s(13)
+            readonly property real joinedW: Math.min(overlay.contentW * 0.9,
+                Math.max(overlay.baseNotchW, overlay.dockPanelW))
+            readonly property real notchW: {
+                if (!overlay.joinedOpen) return overlay.baseNotchW;
+                if (!overlay.reserveSpace) return overlay.joinedW;
+                // Full-width surface: follow the dock reveal so the notch
+                // contracts with the panel instead of snapping after it is
+                // already closed.
+                return overlay.baseNotchW
+                    + (overlay.joinedW - overlay.baseNotchW) * dockPanel.reveal;
+            }
+            readonly property real notchRadius: overlay.joinedOpen
+                ? (overlay.reserveSpace ? overlay.s(13) * (1 - dockPanel.reveal) : 0)
+                : overlay.s(13)
             readonly property real notchY: overlay.s(root.notchOffset)
             readonly property real chromeW: overlay.notch ? overlay.notchW : overlay.pillW
             readonly property real chromeH: overlay.notch ? overlay.notchH : overlay.pillH
@@ -275,18 +305,20 @@ Variants {
             readonly property real chromeX: overlay.notch ? overlay.notchX : overlay.frameX
 
             implicitWidth: overlay.slotW + overlay.boxMargin * 2
-            implicitHeight: overlay.boxMargin * 2 + overlay.chromeH + overlay.panelSpan
+            implicitHeight: overlay.boxMargin * 2 + overlay.chromeH + overlay.panelLayoutSpan
             readonly property real frameX: overlay.posLeft ? overlay.boxMargin
                 : overlay.posRight ? (overlay.layoutW - overlay.pillW - overlay.boxMargin)
                 : Math.round((overlay.layoutW - overlay.pillW) / 2)
             readonly property real frameY: overlay.notch ? overlay.notchY
-                : overlay.boxMargin + (overlay.panelBelow ? 0 : overlay.panelSpan)
+                : overlay.boxMargin + (overlay.panelBelow ? 0 : overlay.panelLayoutSpan)
             readonly property real panelX: Math.round(Math.max(0, Math.min(
                 overlay.layoutW - overlay.panelW,
                 overlay.chromeX + overlay.chromeW / 2 - overlay.panelW / 2)))
             readonly property real panelY: overlay.panelBelow
                 ? overlay.frameY + overlay.chromeH + (overlay.dockJoined ? 0 : overlay.panelGap)
-                : overlay.boxMargin
+                : (overlay.posTop || overlay.posBottom)
+                    ? overlay.frameY - (overlay.dockJoined ? 0 : overlay.panelGap) - overlay.panelH
+                    : overlay.boxMargin
             // Screen-space origin of this surface (anchored edges have no
             // left/top margin, so the window top-left is computed instead).
             // When reserveSpace, the compositor centres the shrunk surface, so
@@ -350,7 +382,9 @@ Variants {
                 }
                 Region {
                     x: Math.round(overlay.panelX)
-                    y: Math.round(overlay.panelY)
+                    y: Math.round(overlay.panelBelow
+                        ? overlay.panelY
+                        : overlay.panelY + overlay.panelH * (1 - overlay.panelShown))
                     width: overlay.panelShown > 0.001 ? Math.round(overlay.panelW) : 0
                     height: overlay.panelShown > 0.001
                         ? Math.round(overlay.panelH * overlay.panelShown) : 0
@@ -459,7 +493,7 @@ Variants {
             // joined dock keeps it visible because they merge into one surface.
             readonly property bool chromeShown: overlay.shown
                 && !(overlay.notch && overlay.panelOpen && !overlay.dockJoined)
-            readonly property bool mascotsShown: overlay.chromeShown && !overlay.panelOpen
+            readonly property bool mascotsShown: overlay.chromeShown && !overlay.dockHeld
 
             Loader {
                 active: root.widgetStatePath !== ""
@@ -680,7 +714,7 @@ Variants {
             Timer {
                 interval: 16
                 repeat: true
-                running: root.enabled
+                running: root.enabled && overlay.mascotsShown
                 onTriggered: overlay.step()
             }
 
@@ -799,7 +833,7 @@ Variants {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: overlay.islandClicked(mouse.x)
+                    onClicked: (mouse) => overlay.islandClicked(mouse.x)
                     onEntered: overlay.hoverReaction(true)
                     onExited: overlay.hoverReaction(false)
                 }
@@ -809,9 +843,10 @@ Variants {
             MascotDock {
                 id: dockPanel
                 x: overlay.panelX
-                y: overlay.panelY
+                y: overlay.panelBelow ? overlay.panelY
+                    : overlay.panelY + overlay.panelH * (1 - dockPanel.reveal)
                 width: overlay.panelW
-                height: overlay.panelH
+                height: overlay.panelH * dockPanel.reveal
                 open: overlay.panelOpen
                 widgets: root.widgetList
                 quickActions: root.quickActions
@@ -819,6 +854,7 @@ Variants {
                 favorites: root.favorites
                 panelWidth: overlay.dockPanelW
                 joined: overlay.dockJoined
+                unfoldUp: !overlay.panelBelow
                 columns: root.dockColumns
                 rows: root.dockRows
                 showHero: root.dockShowHero
@@ -837,15 +873,16 @@ Variants {
             }
 
             // ── per-mascot popover (shares the dock's panel slot) ──────────
-            // The visible size grows/shrinks with the reveal (like the dock):
-            // the background scales its height and the content a vertical Scale,
-            // both anchored to the island-facing edge.
+            // The host grows/shrinks with the reveal (like the dock) and clips
+            // its content: the content is never scaled, so closing cannot
+            // stretch it. Both edges stay anchored to the island.
             Item {
                 id: popoverHost
                 x: overlay.panelX
-                y: overlay.panelY
+                y: overlay.panelBelow ? overlay.panelY
+                    : overlay.panelY + overlay.panelH * (1 - overlay.popoverReveal)
                 width: overlay.panelW
-                height: overlay.panelH
+                height: Math.max(0, overlay.panelH * overlay.popoverReveal)
                 clip: true
                 visible: overlay.popoverReveal > 0.01
 
@@ -868,14 +905,8 @@ Variants {
                     width: parent.width
                     height: overlay.panelH
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: overlay.panelBelow ? parent.top : undefined
-                    anchors.bottom: overlay.panelBelow ? undefined : parent.bottom
+                    y: overlay.panelBelow ? 0 : (popoverHost.height - overlay.panelH)
                     opacity: overlay.popoverReveal
-                    transform: Scale {
-                        origin.x: 0
-                        origin.y: overlay.panelBelow ? 0 : popoverLoader.height
-                        yScale: Math.max(0.001, overlay.popoverReveal)
-                    }
                     source: {
                         if (overlay.popoverId === "") return "";
                         let d = overlay.catalogFor(overlay.popoverId);
