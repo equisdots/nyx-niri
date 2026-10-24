@@ -26,6 +26,15 @@ overlay/ui/plugins/nyx/**  ->  ~/.config/hypr/scripts/quickshell/ui/plugins/nyx/
 - **add** — the target is new. The provider script ships disabled; the overlay
   only runs it when `NYX_CURSOR_PROVIDER` is set.
 
+## Base version
+
+This overlay targets the current shared `nyx` tree, commit `abfd0f9`
+("fix(mascots): stabilize overlay surface and reveal") or newer. The rebased
+`MascotsOverlay.qml` relies on `MascotDock.unfoldUp` and the clipped reveal
+introduced there; those changes are compositor-neutral and arrive with the
+shared plugin deploy, so they are not duplicated in this overlay. Deploy the
+matching `nyx` plugin before merging the overlay onto an older tree.
+
 Create the scripts directory if the deploy step does not already:
 
 ```sh
@@ -36,7 +45,8 @@ mkdir -p "$TARGET_ROOT/ui/plugins/nyx/scripts"
 
 These shared files are **not** in the overlay and must never be edited here:
 
-- `ui/plugins/nyx/front/MascotDock.qml`
+- `ui/plugins/nyx/front/MascotDock.qml` (`unfoldUp` and reveal clipping)
+- `ui/plugins/nyx/host/Mascots.qml` (host adapter, wallpaper preview)
 - `ui/plugins/nyx/mascots/` (all species, `Mascot.qml`, `MascotFaceEyes.qml`,
   `MascotMetrics.js`)
 - `ui/plugins/nyx/nyx.json`

@@ -18,6 +18,26 @@ All notable changes to `nyx-niri` are documented here. The format follows
   the `Item.palette` clash on Qt 6.6+). The niri split is unchanged: cursor via
   an optional `NYX_CURSOR_PROVIDER` loop and window events from
   `niri msg --json event-stream`.
+- `overlay/ui/plugins/nyx/front/MascotsOverlay.qml`: rebased on upstream `nyx`
+  `abfd0f9` ("fix(mascots): stabilize overlay surface and reveal"). The overlay
+  now carries the fixed layer-surface sizing (`dockHeld`, `panelLayoutSpan`,
+  fixed panel height for edge-anchored overlays, reveal-driven joined notch),
+  the clipped popover reveal, hidden mascots until the dock has fully closed,
+  the gated mascot animation timer, and the updated `MascotDock` contract
+  (`unfoldUp`). The niri deltas are unchanged: the Hyprland cursor and
+  `socket2` loops are disabled under niri, cursor tracking uses the optional
+  `NYX_CURSOR_PROVIDER`, and window events come from
+  `niri msg --json event-stream`.
+- niri detection now also accepts `NIRI_SOCKET`, not only
+  `XDG_CURRENT_DESKTOP`; the header comments document both compositors.
+
+### Notes
+
+- The overlay targets the current `nyx` base (`abfd0f9` or newer). It still
+  ships only `MascotsOverlay.qml`: the `front/MascotDock.qml` (`unfoldUp` and
+  reveal clipping) and `host/Mascots.qml` (wallpaper-preview debounce) changes
+  are compositor-neutral and arrive with that base, so they are not duplicated
+  here.
 
 ## [0.1.0] - 2026-10-09
 
