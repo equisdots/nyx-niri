@@ -580,7 +580,7 @@ Variants {
             property bool cursorHere: false
             Process {
                 id: cursorProc
-                command: ["bash", "-c", "while true; do hyprctl cursorpos 2>/dev/null; sleep 0.06; done"]
+                command: ["bash", "-c", "p=$PPID; while kill -0 \"$p\" 2>/dev/null; do hyprctl cursorpos 2>/dev/null; sleep 0.12; done"]
                 running: root.enabled && !root.isNiri
                 stdout: SplitParser { onRead: data => overlay.updateCursor(data) }
             }
@@ -613,7 +613,7 @@ Variants {
                 id: eventsProc
                 command: ["bash", "-c",
                     "SOCK=\"${XDG_RUNTIME_DIR:-/tmp}/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock\"; " +
-                    "while true; do socat -u UNIX-CONNECT:$SOCK - 2>/dev/null; sleep 0.5; done"]
+                    "p=$PPID; while kill -0 \"$p\" 2>/dev/null; do socat -u UNIX-CONNECT:$SOCK - 2>/dev/null; sleep 0.5; done"]
                 running: root.enabled && !root.isNiri
                 stdout: SplitParser { onRead: data => overlay.handleEvent(data) }
             }
@@ -712,9 +712,12 @@ Variants {
             ]
 
             Timer {
-                interval: 16
+                // 30 fps and only on the screen that owns the cursor. Running
+                // the old 60 fps JavaScript step on all four monitors kept a
+                // full core busy even while the mascots were idle.
+                interval: 100
                 repeat: true
-                running: root.enabled && overlay.mascotsShown
+                running: root.enabled && overlay.mascotsShown && overlay.cursorHere
                 onTriggered: overlay.step()
             }
 
